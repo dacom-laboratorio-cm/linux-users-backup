@@ -79,7 +79,7 @@ restore_user_account() {
     if [ ! -f "$info_file" ]; then
         echo -e "${RED}Arquivo de informações não encontrado para o usuário: $username${NC}"
         return 1
-    }
+    fi
     
     # Extrair informações do arquivo de backup
     local passwd_line=$(grep "^$username:" "$info_file" | head -n 1)
@@ -88,7 +88,7 @@ restore_user_account() {
     if [ -z "$passwd_line" ]; then
         echo -e "${RED}Informações do usuário não encontradas no backup: $username${NC}"
         return 1
-    }
+    fi
     
     # Extrair UID e GID
     local uid=$(echo "$passwd_line" | cut -d: -f3)
@@ -100,7 +100,7 @@ restore_user_account() {
     if id "$username" &>/dev/null; then
         echo -e "${YELLOW}Usuário $username já existe. Pulando...${NC}"
         return 0
-    }
+    fi
     
     # Criar grupo se não existir
     if ! getent group "$gid" &>/dev/null; then
@@ -120,15 +120,38 @@ restore_user_account() {
     
     # Restaurar grupos adicionais
     local groups=$(grep "Grupos:" -A 1 "$info_file" | tail -n 1)
-    for group in $groups; do
-        if [ "$group" != "$username" ]; then
-            usermod -a -G "$group" "$username"
-        fi
-    done
+    if [ ! -z "$groups" ]; then
+        for group in $groups; do
+            # Ignorar o grupo principal do usuário e caracteres especiais
+            if [ "$group" != "$username" ] && [ "$group" != ":" ] && [ "$group" != "," ]; then
+                # Verificar se o grupo existe antes de adicionar
+                if getent group "$group" &>/dev/null; then
+                    usermod -a -G "$group" "$username"
+                else
+                    echo -e "${YELLOW}Aviso: Grupo '$group' não existe no sistema${NC}"
+                fi
+            fi
+        done
+    fi
     
     echo -e "${GREEN}Usuário $username restaurado com sucesso${NC}"
     return 0
 }
+
+# Função para criar grupos necessários
+create_required_groups() {
+    local groups=("docker" "tecadm" "sudo" "adm" "dialout" "cdrom" "floppy" "audio" "dip" "video" "plugdev" "netdev" "lpadmin" "scanner" "sambashare")
+    
+    for group in "${groups[@]}"; do
+        if ! getent group "$group" &>/dev/null; then
+            echo -e "${YELLOW}Criando grupo: $group${NC}"
+            groupadd "$group"
+        fi
+    done
+}
+
+# Criar grupos necessários antes de começar
+create_required_groups
 
 # Função para restaurar diretório home
 restore_home_dir() {
@@ -138,13 +161,13 @@ restore_home_dir() {
     if [ ! -f "$home_archive" ]; then
         echo -e "${YELLOW}Arquivo de backup do diretório home não encontrado para: $username${NC}"
         return 1
-    }
+    fi
     
     # Verificar se o usuário existe
     if ! id "$username" &>/dev/null; then
         echo -e "${RED}Usuário $username não existe. Não é possível restaurar o diretório home.${NC}"
         return 1
-    }
+    fi
     
     # Restaurar diretório home
     echo -e "${YELLOW}Restaurando diretório home para $username...${NC}"
